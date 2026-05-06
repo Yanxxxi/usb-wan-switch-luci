@@ -1,0 +1,373 @@
+<script type="text/javascript">//<![CDATA[
+	var switchUrl = '<%=luci.dispatcher.build_url("admin", "services", "wan_switch", "switch")%>';
+	var statusUrl = '<%=luci.dispatcher.build_url("admin", "services", "wan_switch", "status")%>';
+
+	function byId(id) {
+		return document.getElementById(id);
+	}
+
+	function setValueField(name, html) {
+		var row = byId('cbi-wan_switch-1-' + name);
+		var fields;
+
+		if (row) {
+			fields = row.getElementsByClassName('cbi-value-field');
+			if (fields && fields.length > 0) {
+				fields[0].innerHTML = html;
+				return;
+			}
+		}
+
+		var elem = byId('cbid.wan_switch.1.' + name);
+		if (elem)
+			elem.innerHTML = html;
+	}
+
+	function policyName(policy) {
+		if (policy === 'campus_first')
+			return '校园 WAN 优先';
+		if (policy === 'f50_first')
+			return 'F50 优先';
+		return policy || '未知';
+	}
+
+	function onlineLabel(online, ip) {
+		var cls = online ? 'wan-switch-ok' : 'wan-switch-bad';
+		var text = online ? '在线' : '离线';
+		if (ip)
+			text += ' · ' + ip;
+		return '<span class="' + cls + '">' + text + '</span>';
+	}
+
+	function workdayLabel(value) {
+		if (value === 'yes')
+			return '工作日';
+		if (value === 'no')
+			return '非工作日';
+		return '未知';
+	}
+
+	function setText(id, value) {
+		var elem = byId(id);
+		if (elem)
+			elem.textContent = value || '';
+	}
+
+	function setDashboardClass(level) {
+		var elem = byId('wan-switch-dashboard');
+		if (!elem)
+			return;
+
+		elem.className = 'wan-switch-dashboard wan-switch-' + (level || 'info');
+	}
+
+	function updateDashboard(data) {
+		var exitIp = data.default_rule === 'f50_first' ? data.f50_ip : data.wan_ip;
+
+		setDashboardClass(data.level);
+		setText('wan-switch-headline', data.headline);
+		setText('wan-switch-subtitle', data.now + ' · ' + data.window_label);
+		setText('wan-switch-current-exit', data.current_exit);
+		setText('wan-switch-current-ip', exitIp || '无 IP');
+		setText('wan-switch-outage-tonight', data.outage_tonight ? '会' : '不会');
+		setText('wan-switch-outage-detail', data.outage_tonight ? '明天是工作日，预计今晚 23:30 左右断网' : '明天不是工作日，预计今晚不断网');
+		setText('wan-switch-protection', data.outage_window ? '断网窗口中' : (data.default_rule === 'f50_first' ? '已提前保护' : '待命'));
+		setText('wan-switch-next-action', data.next_action);
+		setText('wan-switch-f50-line', (data.f50_online ? 'F50 在线' : 'F50 离线') + (data.f50_ip ? ' · ' + data.f50_ip : ''));
+	}
+
+	function updateButtons(data) {
+		var campusBtn = byId('cbid.wan_switch.1.switch_to_campus');
+		var f50Btn = byId('cbid.wan_switch.1.switch_to_f50');
+
+		if (campusBtn)
+			campusBtn.disabled = data.default_rule === 'campus_first';
+		if (f50Btn)
+			f50Btn.disabled = data.default_rule === 'f50_first' || !data.f50_online;
+	}
+
+	function updateStatus(data) {
+		if (!data)
+			return;
+
+		setValueField('current_policy', policyName(data.default_rule));
+		setValueField('wan_status', onlineLabel(data.wan_online, data.wan_ip));
+		setValueField('f50_status', onlineLabel(data.f50_online, data.f50_ip));
+		setValueField('workday_status', '今天 ' + workdayLabel(data.today_workday) +
+			'；明天 ' + workdayLabel(data.tomorrow_workday));
+
+		updateDashboard(data);
+		updateButtons(data);
+	}
+
+	function setBusy(busy) {
+		var ids = [
+			'cbid.wan_switch.1.switch_to_campus',
+			'cbid.wan_switch.1.switch_to_f50',
+			'cbid.wan_switch.1.switch_auto'
+		];
+
+		for (var i = 0; i < ids.length; i++) {
+			var elem = byId(ids[i]);
+			if (elem)
+				elem.disabled = busy;
+		}
+
+		var notice = byId('wan-switch-notice');
+		if (notice)
+			notice.innerHTML = busy ? '切换中...' : '';
+	}
+
+	function requestJson(url, params, callback) {
+		var xhr = new XMLHttpRequest();
+		var query = [];
+
+		if (params) {
+			for (var key in params) {
+				if (params.hasOwnProperty(key))
+					query.push(encodeURIComponent(key) + '=' + encodeURIComponent(params[key]));
+			}
+		}
+
+		query.push('_=' + new Date().getTime());
+
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState !== 4)
+				return;
+
+			if (xhr.status >= 200 && xhr.status < 300) {
+				try {
+					callback(JSON.parse(xhr.responseText));
+				}
+				catch (e) {
+					callback(null);
+				}
+			}
+			else {
+				callback(null);
+			}
+		};
+
+		xhr.open('GET', url + '?' + query.join('&'), true);
+		xhr.send(null);
+	}
+
+	function refreshStatus() {
+		requestJson(statusUrl, null, function(data) {
+			updateStatus(data);
+		});
+	}
+
+	function switchWan(target) {
+		setBusy(true);
+
+		requestJson(switchUrl, { target: target }, function(data) {
+			setBusy(false);
+
+			var notice = byId('wan-switch-notice');
+			if (data && data.success) {
+				if (notice)
+					notice.innerHTML = '切换完成';
+				updateStatus(data.status);
+			}
+			else {
+				if (notice)
+					notice.innerHTML = '切换失败';
+			}
+		});
+
+		return false;
+	}
+
+	function bindButtons() {
+		var campusBtn = byId('cbid.wan_switch.1.switch_to_campus');
+		var f50Btn = byId('cbid.wan_switch.1.switch_to_f50');
+		var autoBtn = byId('cbid.wan_switch.1.switch_auto');
+
+		if (campusBtn)
+			campusBtn.onclick = function() { return switchWan('campus'); };
+		if (f50Btn)
+			f50Btn.onclick = function() { return switchWan('f50'); };
+		if (autoBtn)
+			autoBtn.onclick = function() { return switchWan('auto'); };
+	}
+
+	bindButtons();
+	refreshStatus();
+	window.setInterval(refreshStatus, 5000);
+//]]></script>
+
+<div id="wan-switch-dashboard" class="wan-switch-dashboard wan-switch-info">
+	<div class="wan-switch-hero">
+		<div>
+			<div class="wan-switch-kicker">当前工作状态</div>
+			<div id="wan-switch-headline" class="wan-switch-headline">读取中...</div>
+			<div id="wan-switch-subtitle" class="wan-switch-subtitle">等待状态接口返回</div>
+		</div>
+		<div class="wan-switch-badge" id="wan-switch-current-exit">--</div>
+	</div>
+
+	<div class="wan-switch-grid">
+		<div class="wan-switch-card">
+			<div class="wan-switch-card-title">当前出口</div>
+			<div id="wan-switch-current-ip" class="wan-switch-card-main">--</div>
+		</div>
+		<div class="wan-switch-card">
+			<div class="wan-switch-card-title">今晚断网</div>
+			<div id="wan-switch-outage-tonight" class="wan-switch-card-main">--</div>
+			<div id="wan-switch-outage-detail" class="wan-switch-card-note">--</div>
+		</div>
+		<div class="wan-switch-card">
+			<div class="wan-switch-card-title">保护状态</div>
+			<div id="wan-switch-protection" class="wan-switch-card-main">--</div>
+			<div id="wan-switch-f50-line" class="wan-switch-card-note">--</div>
+		</div>
+		<div class="wan-switch-card">
+			<div class="wan-switch-card-title">下一次自动动作</div>
+			<div id="wan-switch-next-action" class="wan-switch-card-main wan-switch-card-action">--</div>
+		</div>
+	</div>
+</div>
+
+<div id="wan-switch-notice" class="wan-switch-notice"></div>
+
+<style>
+.wan-switch-ok {
+	color: #2e7d32;
+	font-weight: 600;
+}
+
+.wan-switch-bad {
+	color: #b71c1c;
+	font-weight: 600;
+}
+
+.wan-switch-notice {
+	margin-top: 12px;
+	min-height: 20px;
+	font-weight: 600;
+}
+
+.wan-switch-dashboard {
+	border-left: 6px solid #607d8b;
+	background: #f7f9fb;
+	padding: 16px;
+	margin-bottom: 18px;
+	border-radius: 6px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.wan-switch-success {
+	border-left-color: #2e7d32;
+	background: #f1f8f3;
+}
+
+.wan-switch-warning {
+	border-left-color: #f59e0b;
+	background: #fff8eb;
+}
+
+.wan-switch-danger {
+	border-left-color: #b71c1c;
+	background: #fff1f1;
+}
+
+.wan-switch-info {
+	border-left-color: #1976d2;
+	background: #f1f6fd;
+}
+
+.wan-switch-hero {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 14px;
+}
+
+.wan-switch-kicker {
+	font-size: 12px;
+	font-weight: 700;
+	color: #607d8b;
+}
+
+.wan-switch-headline {
+	font-size: 24px;
+	line-height: 1.25;
+	font-weight: 700;
+	margin-top: 4px;
+}
+
+.wan-switch-subtitle {
+	margin-top: 6px;
+	color: #546e7a;
+}
+
+.wan-switch-badge {
+	min-width: 96px;
+	text-align: center;
+	padding: 8px 10px;
+	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.75);
+	font-size: 18px;
+	font-weight: 700;
+}
+
+.wan-switch-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 10px;
+}
+
+.wan-switch-card {
+	background: rgba(255, 255, 255, 0.82);
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	border-radius: 6px;
+	padding: 12px;
+	min-height: 86px;
+}
+
+.wan-switch-card-title {
+	color: #546e7a;
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.wan-switch-card-main {
+	margin-top: 6px;
+	font-size: 20px;
+	line-height: 1.25;
+	font-weight: 700;
+}
+
+.wan-switch-card-note {
+	margin-top: 6px;
+	color: #607d8b;
+	line-height: 1.35;
+}
+
+.wan-switch-card-action {
+	font-size: 17px;
+}
+
+@media (max-width: 900px) {
+	.wan-switch-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 520px) {
+	.wan-switch-hero {
+		display: block;
+	}
+
+	.wan-switch-badge {
+		margin-top: 10px;
+		text-align: left;
+	}
+
+	.wan-switch-grid {
+		grid-template-columns: 1fr;
+	}
+}
+</style>

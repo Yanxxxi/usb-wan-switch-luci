@@ -1,0 +1,3 @@
+40 7 * * * /root/f50-wan-switch.sh campus-login
+@reboot /root/f50-wan-switch.sh auto
+*/10 * * * * /root/f50-wan-switch.sh auto
