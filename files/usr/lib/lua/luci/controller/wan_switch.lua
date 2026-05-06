@@ -102,7 +102,7 @@ end
 function index()
 	local page
 
-	page = entry({"admin", "services", "wan_switch"}, cbi("wan_switch"), _("WAN/F50切换"), 60)
+	page = entry({"admin", "services", "wan_switch"}, form("wan_switch"), _("WAN/F50切换"), 60)
 	page.dependent = true
 
 	entry({"admin", "services", "wan_switch", "switch"}, call("action_switch")).leaf = true

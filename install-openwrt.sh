@@ -23,22 +23,26 @@ tar czf "$backup" \
 	2>/dev/null || true
 
 mkdir -p /root
+mkdir -p /etc/init.d
 mkdir -p /usr/lib/lua/luci/controller
 mkdir -p /usr/lib/lua/luci/model/cbi
 mkdir -p /usr/lib/lua/luci/view/wan_switch
 
 cp files/root/f50-wan-switch.sh /root/f50-wan-switch.sh
+cp files/etc/init.d/f50-wan-switch /etc/init.d/f50-wan-switch
 cp files/usr/lib/lua/luci/controller/wan_switch.lua /usr/lib/lua/luci/controller/wan_switch.lua
 cp files/usr/lib/lua/luci/model/cbi/wan_switch.lua /usr/lib/lua/luci/model/cbi/wan_switch.lua
 cp files/usr/lib/lua/luci/view/wan_switch/status.htm /usr/lib/lua/luci/view/wan_switch/status.htm
 
 chmod 755 /root/f50-wan-switch.sh
+chmod 755 /etc/init.d/f50-wan-switch
 chmod 644 /usr/lib/lua/luci/controller/wan_switch.lua
 chmod 644 /usr/lib/lua/luci/model/cbi/wan_switch.lua
 chmod 644 /usr/lib/lua/luci/view/wan_switch/status.htm
 
 rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null || true
 /etc/init.d/uhttpd reload 2>/dev/null || true
+/etc/init.d/f50-wan-switch enable 2>/dev/null || true
 
 echo "Installed LuCI plugin and switch script."
 echo "Backup: $backup"

@@ -47,6 +47,7 @@ CHANGELOG.md
 install-openwrt.sh
 scripts/validate.sh
 files/root/f50-wan-switch.sh
+files/etc/init.d/f50-wan-switch
 files/usr/lib/lua/luci/controller/wan_switch.lua
 files/usr/lib/lua/luci/model/cbi/wan_switch.lua
 files/usr/lib/lua/luci/view/wan_switch/status.htm
@@ -85,7 +86,7 @@ chmod +x install-openwrt.sh
 1. 把 `examples/network-f50.conf` 合并到 `/etc/config/network`。
 2. 在 `/etc/config/firewall` 的 `wan` zone 里加入 `list network 'f50'`。
 3. 把 `examples/mwan3.conf` 合并到 `/etc/config/mwan3`。
-4. 把 `examples/crontab.root` 加入 `/etc/crontabs/root`。
+4. 把 `examples/crontab.root` 加入 `/etc/crontabs/root`。不要使用 `@reboot`，部分 OpenWrt/BusyBox 组合会因此导致 `crond` 崩溃；开机自动判断由 `/etc/init.d/f50-wan-switch` 负责。
 5. 如果主 WAN 需要门户认证，把 `examples/f50-wan-switch.conf.example` 复制为 `/root/f50-wan-switch.conf`，填入自己的登录 URL，并设置权限：
 
 ```sh
@@ -101,6 +102,7 @@ ifup f50
 /etc/init.d/mwan3 enable
 /etc/init.d/mwan3 restart
 /etc/init.d/cron restart
+/etc/init.d/f50-wan-switch enable
 ```
 
 LuCI 页面地址：
@@ -234,7 +236,7 @@ Then merge the example configuration snippets:
 1. Add `examples/network-f50.conf` to `/etc/config/network`.
 2. Add `list network 'f50'` to the existing firewall zone named `wan`.
 3. Merge `examples/mwan3.conf` into `/etc/config/mwan3`.
-4. Add `examples/crontab.root` lines into `/etc/crontabs/root`.
+4. Add `examples/crontab.root` lines into `/etc/crontabs/root`. Do not use `@reboot`; some OpenWrt/BusyBox combinations may crash `crond` when parsing it. Boot-time auto mode is handled by `/etc/init.d/f50-wan-switch`.
 5. Optional: copy `examples/f50-wan-switch.conf.example` to `/root/f50-wan-switch.conf`, fill in your captive-portal login URL, and run `chmod 600 /root/f50-wan-switch.conf`.
 
 Reload services:
@@ -246,6 +248,7 @@ ifup f50
 /etc/init.d/mwan3 enable
 /etc/init.d/mwan3 restart
 /etc/init.d/cron restart
+/etc/init.d/f50-wan-switch enable
 ```
 
 Open LuCI:

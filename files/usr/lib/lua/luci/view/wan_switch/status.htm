@@ -6,23 +6,6 @@
 		return document.getElementById(id);
 	}
 
-	function setValueField(name, html) {
-		var row = byId('cbi-wan_switch-1-' + name);
-		var fields;
-
-		if (row) {
-			fields = row.getElementsByClassName('cbi-value-field');
-			if (fields && fields.length > 0) {
-				fields[0].innerHTML = html;
-				return;
-			}
-		}
-
-		var elem = byId('cbid.wan_switch.1.' + name);
-		if (elem)
-			elem.innerHTML = html;
-	}
-
 	function policyName(policy) {
 		if (policy === 'campus_first')
 			return '校园 WAN 优先';
@@ -77,8 +60,8 @@
 	}
 
 	function updateButtons(data) {
-		var campusBtn = byId('cbid.wan_switch.1.switch_to_campus');
-		var f50Btn = byId('cbid.wan_switch.1.switch_to_f50');
+		var campusBtn = byId('wan-switch-action-campus');
+		var f50Btn = byId('wan-switch-action-f50');
 
 		if (campusBtn)
 			campusBtn.disabled = data.default_rule === 'campus_first';
@@ -90,21 +73,15 @@
 		if (!data)
 			return;
 
-		setValueField('current_policy', policyName(data.default_rule));
-		setValueField('wan_status', onlineLabel(data.wan_online, data.wan_ip));
-		setValueField('f50_status', onlineLabel(data.f50_online, data.f50_ip));
-		setValueField('workday_status', '今天 ' + workdayLabel(data.today_workday) +
-			'；明天 ' + workdayLabel(data.tomorrow_workday));
-
 		updateDashboard(data);
 		updateButtons(data);
 	}
 
 	function setBusy(busy) {
 		var ids = [
-			'cbid.wan_switch.1.switch_to_campus',
-			'cbid.wan_switch.1.switch_to_f50',
-			'cbid.wan_switch.1.switch_auto'
+			'wan-switch-action-campus',
+			'wan-switch-action-f50',
+			'wan-switch-action-auto'
 		];
 
 		for (var i = 0; i < ids.length; i++) {
@@ -180,9 +157,9 @@
 	}
 
 	function bindButtons() {
-		var campusBtn = byId('cbid.wan_switch.1.switch_to_campus');
-		var f50Btn = byId('cbid.wan_switch.1.switch_to_f50');
-		var autoBtn = byId('cbid.wan_switch.1.switch_auto');
+		var campusBtn = byId('wan-switch-action-campus');
+		var f50Btn = byId('wan-switch-action-f50');
+		var autoBtn = byId('wan-switch-action-auto');
 
 		if (campusBtn)
 			campusBtn.onclick = function() { return switchWan('campus'); };
@@ -229,6 +206,12 @@
 	</div>
 </div>
 
+<div class="wan-switch-actions">
+	<button type="button" id="wan-switch-action-campus" class="btn cbi-button cbi-button-apply">切到校园 WAN</button>
+	<button type="button" id="wan-switch-action-f50" class="btn cbi-button cbi-button-apply">切到 F50</button>
+	<button type="button" id="wan-switch-action-auto" class="btn cbi-button cbi-button-apply">按自动规则切换</button>
+</div>
+
 <div id="wan-switch-notice" class="wan-switch-notice"></div>
 
 <style>
@@ -246,6 +229,13 @@
 	margin-top: 12px;
 	min-height: 20px;
 	font-weight: 600;
+}
+
+.wan-switch-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 12px;
 }
 
 .wan-switch-dashboard {
