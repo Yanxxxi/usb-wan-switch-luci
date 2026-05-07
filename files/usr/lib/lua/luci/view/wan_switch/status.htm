@@ -46,12 +46,14 @@
 
 	function updateDashboard(data) {
 		var exitIp = data.default_rule === 'f50_first' ? data.f50_ip : data.wan_ip;
+		var exitKind = data.default_rule === 'f50_first' ? 'USB设备' : '校园网';
 
 		setDashboardClass(data.level);
 		setText('wan-switch-headline', data.headline);
 		setText('wan-switch-subtitle', data.now + ' · ' + data.window_label);
 		setText('wan-switch-current-exit', data.current_exit);
 		setText('wan-switch-current-ip', exitIp || '无 IP');
+		setText('wan-switch-current-kind', exitKind);
 		setText('wan-switch-outage-tonight', data.outage_tonight ? '会' : '不会');
 		setText('wan-switch-outage-detail', data.outage_tonight ? '明天是工作日，预计今晚 23:30 左右断网' : '明天不是工作日，预计今晚不断网');
 		setText('wan-switch-protection', data.outage_window ? '断网窗口中' : (data.default_rule === 'f50_first' ? '已提前保护' : '待命'));
@@ -188,6 +190,7 @@
 		<div class="wan-switch-card">
 			<div class="wan-switch-card-title">当前出口</div>
 			<div id="wan-switch-current-ip" class="wan-switch-card-main">--</div>
+			<div id="wan-switch-current-kind" class="wan-switch-card-note">--</div>
 		</div>
 		<div class="wan-switch-card">
 			<div class="wan-switch-card-title">今晚断网</div>
