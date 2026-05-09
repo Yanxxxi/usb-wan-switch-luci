@@ -1,53 +1,144 @@
-# F50 WAN Switch LuCI
+ # 校园网 / USB 随身 WiFi 自动切换 LuCI 插件
 
-[中文](#中文) | [English](#english)
+这是一个适用于 OpenWrt 的 LuCI 插件和切换脚本，用于在 **校园 WAN** 与 **USB 随身 WiFi** 之间自动切换。
 
-OpenWrt LuCI 插件和切换脚本，用 `mwan3` 在主 WAN 与 USB 共享网络的中兴 F50 备用 WAN 之间切换。
+当前版本按“USB 是计费网络”的前提设计：
 
-This repository is sanitized. It does not include router passwords, captive-portal credentials, personal cron jobs, or host-specific backups.
+- 白天默认只走校园网；
+- 白天关闭或禁用 USB 随身 WiFi，避免偷跑计费流量；
+- 工作日前夜提前预热 USB；
+- 到断网时间切到 USB；
+- 工作日早晨提前执行校园网认证；
+- 到恢复时间切回校园网，并关闭 USB 计费网络。
 
-## 中文
+文件名仍保留原项目的 `f50-wan-switch.sh`，但页面显示、接口名和配置逻辑已改为校园网 / USB 随身 WiFi。
 
-### 项目简介
+---
 
-这个项目适合这类场景：路由器平时走主 WAN，例如校园网、有线宽带或宿舍网络；在固定断网时段或主 WAN 不可用时，自动切到通过 USB 连接的中兴 F50、手机 USB 共享网络或其他备用 WAN。
+## 一、适配的接口名称
 
-项目包含：
+本项目按你的路由器环境适配：
 
-- `/root/f50-wan-switch.sh`：核心切换脚本。
-- LuCI 页面：在网页端查看当前状态并手动切换。
-- `mwan3` 示例配置：用策略路由切换流量，不直接改 `network.wan.device`。
-- 节假日/调休判断：可用于“工作日前一晚断网”这类规则。
-- 可选的门户认证登录：切回主 WAN 前先登录并验证主 WAN 真能出公网。
 
-### 功能
-
-- 平时优先走主 WAN。
-- 备用 WAN 命名为 `f50`，默认示例设备是 `eth2`。
-- 支持手动切换：
-  - 主 WAN
-  - F50
-  - 自动判断
-- LuCI 页面显示：
-  - 当前实际出口
-  - 主 WAN 和 F50 是否在线
-  - 今晚是否预计断网
-  - 当前是否已经处于 F50 保护状态
-  - 下一次自动动作
-- 自动判断中国节假日和调休；接口不可用时退回周一到周五规则。
-- 如果主 WAN 需要网页登录认证，可以配置登录 URL。脚本会强制从主 WAN 接口发起登录，并确认连通后才切回。
-
-### 仓库结构
+USB 网络示例配置在：
 
 ```text
-README.md
-LICENSE
-CHANGELOG.md
-.github/workflows/validate.yml
+examples/network-f50.conf
+```
+
+虽然文件名仍保留 `network-f50.conf`，但内容已经是：
+
+```conf
+config interface 'usb'
+	option device 'usb0'
+	option proto 'dhcp'
+	option metric '20'
+	option peerdns '0'
+	list dns '223.5.5.5'
+	list dns '119.29.29.29'
+```
+
+---
+
+## 二、核心策略
+
+本插件使用 mwan3 进行策略路由切换。
+
+由于 USB 是计费网络，本项目不使用“校园网优先、USB 自动备用”的策略，而是使用更安全的单线策略：
+
+| 策略名 | 含义 | 使用场景 |
+|---|---|---|
+| `campus_only` | 只走校园 WAN | 白天默认状态 |
+| `usb_only` | 只走 USB 随身 WiFi | 工作日前夜和早晨断网窗口 |
+| `campus_portal` | 校园网认证地址强制走 WAN | 执行校园网登录 |
+
+这样可以避免白天校园网短暂波动时业务流量自动跑到 USB 上产生计费。
+
+---
+
+## 三、自动切换时间线
+
+默认自动规则如下：
+
+| 时间 | 动作 |
+|---|---|
+| 23:25 - 23:29 | 如果明天是工作日，提前启动 USB，启用 mwan3 的 USB 监控 |
+| 23:30 后 | 如果明天是工作日，切到 `usb_only` |
+| 次日 07:55 - 07:59 | 如果今天是工作日，提前启动校园 WAN 并执行校园网认证 |
+| 次日 08:00 后 | 切回 `campus_only`，关闭 USB 计费网络 |
+| 其他时间 | 保持 `campus_only` |
+
+建议 cron 每 5 分钟执行一次：
+
+```cron
+@reboot /root/f50-wan-switch.sh auto
+*/5 * * * * /root/f50-wan-switch.sh auto
+```
+
+示例文件：
+
+```text
+examples/crontab.root
+```
+
+---
+
+## 四、校园网认证脚本
+
+插件默认调用：
+
+```sh
+/root/cumt/login.sh
+```
+
+由于登录脚本中包含账号和密码，**本仓库不保存你的真实账号密码**。
+
+你需要在路由器上手动创建：
+
+```sh
+mkdir -p /root/cumt
+vi /root/cumt/login.sh
+chmod +x /root/cumt/login.sh
+```
+
+示例：
+
+```sh
+#!/bin/sh
+
+USER_ACCOUNT="你的账号"
+USER_PASSWORD="你的密码"
+
+curl "http://10.2.5.251:801/eportal/?" \
+-G \
+--data-urlencode "c=Portal" \
+--data-urlencode "a=login" \
+--data-urlencode "login_method=1" \
+--data-urlencode "user_account=${USER_ACCOUNT}" \
+--data-urlencode "user_password=${USER_PASSWORD}"
+```
+
+mwan3 配置中已经包含：
+
+```conf
+config rule 'campus_portal'
+	option dest_ip '10.2.5.251'
+	option use_policy 'campus_only'
+```
+
+这条规则用于保证访问校园网认证地址 `10.2.5.251` 时固定走校园 WAN，而不是走 USB。
+
+---
+
+
+
+## 五、安装文件
+
+项目主要文件：
+
+```text
 install-openwrt.sh
-scripts/validate.sh
 files/root/f50-wan-switch.sh
-files/etc/init.d/f50-wan-switch
 files/usr/lib/lua/luci/controller/wan_switch.lua
 files/usr/lib/lua/luci/model/cbi/wan_switch.lua
 files/usr/lib/lua/luci/view/wan_switch/status.htm
@@ -55,269 +146,438 @@ examples/network-f50.conf
 examples/firewall-wan-zone-snippet.conf
 examples/mwan3.conf
 examples/crontab.root
-examples/f50-wan-switch.conf.example
 ```
 
-### 依赖
+安装脚本会复制：
 
-- OpenWrt + LuCI，已在 OpenWrt 23.05 系固件上测试。
-- `mwan3`
-- `curl`
-- `jsonfilter`
+```text
+files/root/f50-wan-switch.sh
+files/usr/lib/lua/luci/controller/wan_switch.lua
+files/usr/lib/lua/luci/model/cbi/wan_switch.lua
+files/usr/lib/lua/luci/view/wan_switch/status.htm
+```
 
-可按需安装：
+到路由器对应目录。
+
+---
+
+## 七、安装步骤
+
+### 1. 安装依赖
+
+在 OpenWrt 上需要有：
 
 ```sh
 opkg update
-opkg install mwan3 luci-app-mwan3 curl
+opkg install mwan3 luci-app-mwan3 curl jsonfilter
 ```
 
-### 安装
+如果 LuCI 已安装，一般无需额外安装 LuCI 基础包。
 
-把本仓库复制到 OpenWrt 路由器上，然后运行：
+### 2. 上传项目
+
+将整个项目目录上传到 OpenWrt，例如：
 
 ```sh
-chmod +x install-openwrt.sh
-./install-openwrt.sh
+scp -r f50-wan-switch-luci-export root@192.168.1.1:/root/
 ```
 
-再按你的路由器情况合并示例配置：
+### 3. 执行安装
 
-1. 把 `examples/network-f50.conf` 合并到 `/etc/config/network`。
-2. 在 `/etc/config/firewall` 的 `wan` zone 里加入 `list network 'f50'`。
-3. 把 `examples/mwan3.conf` 合并到 `/etc/config/mwan3`。
-4. 把 `examples/crontab.root` 加入 `/etc/crontabs/root`。不要使用 `@reboot`，部分 OpenWrt/BusyBox 组合会因此导致 `crond` 崩溃；开机自动判断由 `/etc/init.d/f50-wan-switch` 负责。
-5. 如果主 WAN 需要门户认证，把 `examples/f50-wan-switch.conf.example` 复制为 `/root/f50-wan-switch.conf`，填入自己的登录 URL，并设置权限：
+在路由器上执行：
 
 ```sh
-chmod 600 /root/f50-wan-switch.conf
+cd /root/f50-wan-switch-luci-export
+sh install-openwrt.sh
 ```
 
-重载服务：
+安装完成后脚本位于：
 
 ```sh
-/etc/init.d/network reload
-ifup f50
-/etc/init.d/firewall reload
-/etc/init.d/mwan3 enable
-/etc/init.d/mwan3 restart
-/etc/init.d/cron restart
-/etc/init.d/f50-wan-switch enable
+/root/f50-wan-switch.sh
 ```
 
-LuCI 页面地址：
+LuCI 页面位于：
 
 ```text
-http://<router-ip>/cgi-bin/luci/admin/services/wan_switch
+服务 -> 校园网/随身WiFi切换
 ```
 
-### 自动切换逻辑
-
-默认逻辑适合“工作日前一晚断网，工作日早上恢复”的场景：
-
-- 如果明天是工作日，`23:20` 后切到 F50。
-- 如果今天是工作日，`07:50` 前保持 F50。
-- 其他时间使用主 WAN。
-
-节假日和调休数据来自：
+也可通过旧入口：
 
 ```text
-https://timor.tech/api/holiday/info/YYYY-MM-DD
+网络 -> 校园网/随身WiFi切换
 ```
 
-结果缓存到：
+---
+
+## 八、合并 OpenWrt 配置
+
+### 1. 网络配置
+
+参考：
 
 ```text
-/root/.cache/f50-wan-switch/
+examples/network-f50.conf
 ```
 
-如果接口不可用，脚本会退回普通周一到周五规则。
+将 USB 接口配置合并到：
 
-### 门户认证
+```text
+/etc/config/network
+```
 
-如果主 WAN 是校园网或需要网页登录认证的网络，可以配置：
+核心内容：
+
+```conf
+config interface 'usb'
+	option device 'usb0'
+	option proto 'dhcp'
+	option metric '20'
+	option peerdns '0'
+	list dns '223.5.5.5'
+	list dns '119.29.29.29'
+```
+
+### 2. 防火墙配置
+
+参考：
+
+```text
+examples/firewall-wan-zone-snippet.conf
+```
+
+将 `usb` 加入现有 wan 防火墙区域：
+
+```conf
+list network 'usb'
+```
+
+示例：
+
+```conf
+config zone
+	option name 'wan'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	option masq '1'
+	option mtu_fix '1'
+	list network 'wan'
+	list network 'usb'
+```
+
+### 3. mwan3 配置
+
+参考：
+
+```text
+examples/mwan3.conf
+```
+
+核心策略：
+
+```conf
+config policy 'campus_only'
+	option last_resort 'unreachable'
+	list use_member 'wan_m1_w3'
+
+config policy 'usb_only'
+	option last_resort 'unreachable'
+	list use_member 'usb_m1_w3'
+
+config rule 'campus_portal'
+	option dest_ip '10.2.5.251'
+	option use_policy 'campus_only'
+
+config rule 'default_rule'
+	option dest_ip '0.0.0.0/0'
+	option use_policy 'campus_only'
+```
+
+注意：
+
+```conf
+config interface 'usb'
+	option enabled '0'
+```
+
+USB 的 mwan3 监控默认关闭。脚本会在夜间预热或切换到 USB 时自动启用，切回校园网后再关闭。
+
+### 4. cron 配置
+
+参考：
+
+```text
+examples/crontab.root
+```
+
+合并到 root 的 crontab：
 
 ```sh
-CAMPUS_IFACE='eth1'
-CAMPUS_CHECK_IP='223.5.5.5'
-CAMPUS_LOGIN_URL='http://example.edu/login?user=YOUR_USER&password=YOUR_PASSWORD'
+crontab -e
 ```
 
-脚本会使用：
+加入：
+
+```cron
+@reboot /root/f50-wan-switch.sh auto
+*/5 * * * * /root/f50-wan-switch.sh auto
+```
+
+---
+
+## 九、脚本命令
 
 ```sh
-curl --interface "$CAMPUS_IFACE" "$CAMPUS_LOGIN_URL"
+/root/f50-wan-switch.sh auto
 ```
 
-然后再通过 `ping -I "$CAMPUS_IFACE"` 检查主 WAN 是否真的能出公网。只有检查通过，才会切回主 WAN 优先。
+按自动规则执行。
 
-### 常用命令
+```sh
+/root/f50-wan-switch.sh campus
+```
+
+切到校园 WAN 单线策略，执行校园网认证，并开启 USB 计费保护：
+
+- 关闭 mwan3 的 USB 监控；
+- 关闭 USB 接口，避免继续产生 USB 计费流量。
+
+```sh
+/root/f50-wan-switch.sh usb
+```
+
+切到 USB 随身 WiFi 单线策略，并关闭 USB 计费保护：
+
+- 启动 USB 接口；
+- 启用 mwan3 的 USB 监控；
+- 将默认流量切到 `usb_only`。
+
+```sh
+/root/f50-wan-switch.sh prepare-usb
+```
+
+只预热 USB：启动 `usb` 接口，启用 mwan3 的 USB 监控，但不切换默认出口。
+
+```sh
+/root/f50-wan-switch.sh prepare-campus
+```
+
+只预认证校园网：启动 `wan` 接口并执行 `/root/cumt/login.sh`，但不切换默认出口。
+
+```sh
+/root/f50-wan-switch.sh login
+```
+
+只执行校园网认证。
+
+```sh
+/root/f50-wan-switch.sh down-wan
+```
+
+手动关闭校园 WAN 接口，便于测试和临时断开校园网。
+
+```sh
+/root/f50-wan-switch.sh down-usb
+```
+
+手动关闭 USB 随身 WiFi 接口，并关闭 mwan3 的 USB 监控，便于测试和避免 USB 计费流量。
+
+兼容别名：
+
+```sh
+/root/f50-wan-switch.sh wan-down
+/root/f50-wan-switch.sh stop-wan
+/root/f50-wan-switch.sh usb-down
+/root/f50-wan-switch.sh stop-usb
+```
 
 ```sh
 /root/f50-wan-switch.sh status
-/root/f50-wan-switch.sh campus
+```
+
+输出脚本状态和 mwan3 状态。
+
+兼容旧命令：
+
+```sh
 /root/f50-wan-switch.sh f50
-/root/f50-wan-switch.sh auto
-/root/f50-wan-switch.sh campus-login
 ```
 
-### 本地检查
-
-发布或打包前运行：
+等价于：
 
 ```sh
-./scripts/validate.sh
+/root/f50-wan-switch.sh usb
 ```
 
-它会检查 shell 语法，并扫描常见隐私字段。
+---
 
-### 注意事项
+## 十、USB 计费保护说明
 
-- OpenWrt 的“网络/接口”页面可能仍显示 `wan` 绑定在主 WAN 设备上，这是正常的。本项目通过 `mwan3` 策略路由选择实际流量出口。
-- 已建立的连接可能继续停留在旧出口，新连接才会按新策略走。
-- 不同路由器的 USB 共享网络设备名可能是 `eth2`、`usb0`、`wwan0` 等，使用前需要确认。
-- 公开仓库不要提交真实的 `/root/f50-wan-switch.conf`。
+本项目默认尽量避免白天 USB 产生流量：
 
-### License
+1. 白天使用 `campus_only`，默认流量不能走 USB；
+2. 白天关闭 `mwan3.usb.enabled`，避免 USB 监控探测流量；
+3. 切回校园网后执行 `ifdown usb`；
+4. 只有 23:25 预热 USB 之后才可能产生 USB 流量；
+5. 23:30 后才正式切到 USB。
 
-本项目使用 MIT License。选择 MIT 是因为这个项目定位为轻量工具和 LuCI 页面，目标是方便其他爱好者复制、修改、研究和二次分发。
+需要注意：
 
-## English
+- 23:25 到 23:30 的预热阶段可能产生 DHCP、mwan3 探测等少量流量；
+- 23:30 到 08:00 使用 USB，是预期内计费流量；
+- 如果你在 LuCI 中手动点击“切到 USB 随身 WiFi”，会立即开始使用 USB 计费网络。
 
-### Overview
+---
 
-This project provides an OpenWrt LuCI page and a shell switcher for routing traffic between a primary WAN and a USB-tethered ZTE F50 backup WAN through `mwan3`.
+## 十一、验证命令
 
-It is useful when a primary network, such as a campus network or dorm network, has predictable outage windows and a USB-tethered backup connection is available.
-
-### Features
-
-- Keeps the primary WAN as the normal path.
-- Adds a backup WAN named `f50`, usually a USB RNDIS/CDC Ethernet device such as `eth2`.
-- Uses `mwan3` policies instead of changing `network.wan.device`.
-- Supports manual switching to:
-  - primary WAN
-  - F50
-  - automatic mode
-- Provides a LuCI dashboard showing:
-  - current exit path
-  - primary WAN and F50 status
-  - whether an outage is expected tonight
-  - whether F50 protection is active
-  - the next automatic action
-- Supports China holiday/workday detection for adjusted workdays and holidays.
-- Optionally runs captive-portal login before switching back to the primary WAN.
-
-### Requirements
-
-- OpenWrt with LuCI, tested on an OpenWrt 23.05-based build.
-- `mwan3`
-- `curl`
-- `jsonfilter`
-
-Install packages as needed:
+安装并合并配置后，可以执行：
 
 ```sh
-opkg update
-opkg install mwan3 luci-app-mwan3 curl
+/root/f50-wan-switch.sh luci-status
 ```
 
-### Installation
-
-Copy this repository to the router, then run:
-
-```sh
-chmod +x install-openwrt.sh
-./install-openwrt.sh
-```
-
-Then merge the example configuration snippets:
-
-1. Add `examples/network-f50.conf` to `/etc/config/network`.
-2. Add `list network 'f50'` to the existing firewall zone named `wan`.
-3. Merge `examples/mwan3.conf` into `/etc/config/mwan3`.
-4. Add `examples/crontab.root` lines into `/etc/crontabs/root`. Do not use `@reboot`; some OpenWrt/BusyBox combinations may crash `crond` when parsing it. Boot-time auto mode is handled by `/etc/init.d/f50-wan-switch`.
-5. Optional: copy `examples/f50-wan-switch.conf.example` to `/root/f50-wan-switch.conf`, fill in your captive-portal login URL, and run `chmod 600 /root/f50-wan-switch.conf`.
-
-Reload services:
-
-```sh
-/etc/init.d/network reload
-ifup f50
-/etc/init.d/firewall reload
-/etc/init.d/mwan3 enable
-/etc/init.d/mwan3 restart
-/etc/init.d/cron restart
-/etc/init.d/f50-wan-switch enable
-```
-
-Open LuCI:
+期望能看到类似：
 
 ```text
-http://<router-ip>/cgi-bin/luci/admin/services/wan_switch
+mode=campus
+policy=campus_only
+default_rule=campus_only
+usb_mwan_enabled=0
+auto_action=campus
 ```
 
-### Automatic Schedule
-
-The default script assumes this use case:
-
-- if tomorrow is a workday, switch to F50 after `23:20`;
-- if today is a workday, keep F50 before `07:50`;
-- otherwise use the primary WAN.
-
-It checks Chinese holiday/workday data from:
-
-```text
-https://timor.tech/api/holiday/info/YYYY-MM-DD
-```
-
-Results are cached under:
-
-```text
-/root/.cache/f50-wan-switch/
-```
-
-If the API is unavailable, the script falls back to Monday-Friday as workdays.
-
-### Captive-Portal Login
-
-If the primary WAN requires portal authentication, configure `/root/f50-wan-switch.conf`:
+查看 mwan3：
 
 ```sh
-CAMPUS_IFACE='eth1'
-CAMPUS_CHECK_IP='223.5.5.5'
-CAMPUS_LOGIN_URL='http://example.edu/login?user=YOUR_USER&password=YOUR_PASSWORD'
+mwan3 status
 ```
 
-The script forces login through the primary WAN interface, then checks connectivity through the same interface before switching back.
-
-### Commands
+查看接口：
 
 ```sh
-/root/f50-wan-switch.sh status
+ifstatus wan
+ifstatus usb
+```
+
+查看日志：
+
+```sh
+logread | grep wan-usb-switch
+```
+
+---
+
+## 十二、故障排查
+
+### 1. LuCI 页面打不开
+
+执行：
+
+```sh
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache/* 2>/dev/null
+/etc/init.d/uhttpd reload
+```
+
+### 2. 点击按钮无反应
+
+检查脚本权限：
+
+```sh
+chmod 755 /root/f50-wan-switch.sh
+```
+
+检查 LuCI 调用：
+
+```sh
+/root/f50-wan-switch.sh luci-status
+```
+
+### 3. 校园网认证失败
+
+检查：
+
+```sh
+ls -l /root/cumt/login.sh
+chmod +x /root/cumt/login.sh
+/root/cumt/login.sh
+```
+
+确认 mwan3 中存在：
+
+```conf
+config rule 'campus_portal'
+	option dest_ip '10.2.5.251'
+	option use_policy 'campus_only'
+```
+
+### 4. USB 无法上线
+
+检查接口名和设备名：
+
+```sh
+ifstatus usb
+ip link show usb0
+```
+
+如果设备名不是 `usb0`，需要修改：
+
+```text
+/etc/config/network
+```
+
+以及示例中的 `option device`。
+
+### 5. 白天仍有 USB 流量
+
+检查当前策略：
+
+```sh
+uci get mwan3.default_rule.use_policy
+uci get mwan3.usb.enabled
+```
+
+白天应为：
+
+```text
+campus_only
+0
+```
+
+如果不是，可以执行：
+
+```sh
 /root/f50-wan-switch.sh campus
-/root/f50-wan-switch.sh f50
-/root/f50-wan-switch.sh auto
-/root/f50-wan-switch.sh campus-login
 ```
 
-### Local Checks
-
-Before publishing or packaging, run:
+手动点击 LuCI 中的“切到 USB 随身 WiFi”或执行：
 
 ```sh
-./scripts/validate.sh
+/root/f50-wan-switch.sh usb
 ```
 
-The check verifies shell syntax and scans for common private values.
+会主动关闭 USB 计费保护并开始使用 USB 网络。切回“校园 WAN”或执行：
 
-### Notes
+```sh
+/root/f50-wan-switch.sh campus
+```
 
-- The OpenWrt Network page may still show `wan` bound to the primary device. That is expected. Traffic selection is done by `mwan3` policy routing.
-- Existing connections may stay on the previous WAN until they reconnect.
-- Review the interface names before applying. Some routers use `usb0`, `eth2`, `wwan0`, or another device name for USB tethering.
-- Do not commit a real `/root/f50-wan-switch.conf` to a public repository.
+会重新开启 USB 计费保护。
 
-### License
+---
 
-MIT License.
+## 十三、设计取舍
+
+为了避免 USB 计费网络白天偷跑流量，本项目没有采用“双 WAN 常在线 + USB 自动备用”的高可用方案，而是采用：
+
+```text
+白天 campus_only
+夜间 usb_only
+切换前预热
+早晨预认证
+切回后关闭 USB
+```
+
+这能在“尽量无感切换”和“控制 USB 计费流量”之间取得更稳妥的平衡。

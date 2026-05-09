@@ -6,11 +6,32 @@
 		return document.getElementById(id);
 	}
 
+	function setValueField(name, html) {
+		var row = byId('cbi-wan_switch-1-' + name);
+		var fields;
+
+		if (row) {
+			fields = row.getElementsByClassName('cbi-value-field');
+			if (fields && fields.length > 0) {
+				fields[0].innerHTML = html;
+				return;
+			}
+		}
+
+		var elem = byId('cbid.wan_switch.1.' + name);
+		if (elem)
+			elem.innerHTML = html;
+	}
+
 	function policyName(policy) {
+		if (policy === 'campus_only')
+			return '校园 WAN 单线';
+		if (policy === 'usb_only')
+			return 'USB 随身 WiFi 单线';
 		if (policy === 'campus_first')
-			return '校园 WAN 优先';
-		if (policy === 'f50_first')
-			return 'F50 优先';
+			return '校园 WAN 优先（兼容旧配置）';
+		if (policy === 'usb_first' || policy === 'f50_first')
+			return 'USB 优先（兼容旧配置）';
 		return policy || '未知';
 	}
 
@@ -20,6 +41,16 @@
 		if (ip)
 			text += ' · ' + ip;
 		return '<span class="' + cls + '">' + text + '</span>';
+	}
+
+	function billingLabel(data) {
+		if (data.mode === 'usb')
+			return '<span class="wan-switch-warn">当前正在使用 USB 计费网络</span>';
+		if (data.usb_online)
+			return '<span class="wan-switch-warn">USB 已在线，计费保护未关闭接口</span>';
+		if (data.billing_protection)
+			return '<span class="wan-switch-ok">已启用，白天不走 USB</span>';
+		return '<span class="wan-switch-bad">未完全启用，请检查 mwan3.usb</span>';
 	}
 
 	function workdayLabel(value) {
@@ -45,35 +76,43 @@
 	}
 
 	function updateDashboard(data) {
-		var exitIp = data.default_rule === 'f50_first' ? data.f50_ip : data.wan_ip;
-		var exitKind = data.default_rule === 'f50_first' ? 'USB设备' : '校园网';
+		var usingUsb = data.mode === 'usb' || (data.usb_dev && data.default_dev === data.usb_dev);
+		var exitIp = usingUsb ? data.usb_ip : data.wan_ip;
+		var usbLine = (data.usb_online ? 'USB 在线' : 'USB 离线') + (data.usb_ip ? ' · ' + data.usb_ip : '');
+		var protectionText = usingUsb ? '已关闭' : (data.billing_protection ? '计费保护中' : (data.usb_online ? 'USB 已在线' : '需检查'));
 
 		setDashboardClass(data.level);
 		setText('wan-switch-headline', data.headline);
 		setText('wan-switch-subtitle', data.now + ' · ' + data.window_label);
 		setText('wan-switch-current-exit', data.current_exit);
 		setText('wan-switch-current-ip', exitIp || '无 IP');
-		setText('wan-switch-current-kind', exitKind);
 		setText('wan-switch-outage-tonight', data.outage_tonight ? '会' : '不会');
-		setText('wan-switch-outage-detail', data.outage_tonight ? '明天是工作日，预计今晚 23:30 左右断网' : '明天不是工作日，预计今晚不断网');
-		setText('wan-switch-protection', data.outage_window ? '断网窗口中' : (data.default_rule === 'f50_first' ? '已提前保护' : '待命'));
+		setText('wan-switch-outage-detail', data.outage_tonight ? '明天是工作日：23:25 预热 USB，23:30 切到 USB，次日 08:00 切回校园 WAN' : '明天不是工作日，预计今晚不断网');
+		setText('wan-switch-protection', protectionText);
 		setText('wan-switch-next-action', data.next_action);
-		setText('wan-switch-f50-line', (data.f50_online ? 'F50 在线' : 'F50 离线') + (data.f50_ip ? ' · ' + data.f50_ip : ''));
+		setText('wan-switch-usb-line', usbLine);
 	}
 
 	function updateButtons(data) {
-		var campusBtn = byId('wan-switch-action-campus');
-		var f50Btn = byId('wan-switch-action-f50');
+		var campusBtn = byId('cbid.wan_switch.1.switch_to_campus');
+		var usbBtn = byId('cbid.wan_switch.1.switch_to_usb');
 
 		if (campusBtn)
-			campusBtn.disabled = data.default_rule === 'campus_first';
-		if (f50Btn)
-			f50Btn.disabled = data.default_rule === 'f50_first' || !data.f50_online;
+			campusBtn.disabled = data.mode === 'campus';
+		if (usbBtn)
+			usbBtn.disabled = data.mode === 'usb';
 	}
 
 	function updateStatus(data) {
 		if (!data)
 			return;
+
+		setValueField('current_policy', policyName(data.policy || data.default_rule));
+		setValueField('wan_status', onlineLabel(data.wan_online, data.wan_ip));
+		setValueField('usb_status', onlineLabel(data.usb_online, data.usb_ip));
+		setValueField('billing_status', billingLabel(data));
+		setValueField('workday_status', '今天 ' + workdayLabel(data.today_workday) +
+			'；明天 ' + workdayLabel(data.tomorrow_workday));
 
 		updateDashboard(data);
 		updateButtons(data);
@@ -81,9 +120,12 @@
 
 	function setBusy(busy) {
 		var ids = [
-			'wan-switch-action-campus',
-			'wan-switch-action-f50',
-			'wan-switch-action-auto'
+			'cbid.wan_switch.1.switch_to_campus',
+			'cbid.wan_switch.1.switch_to_usb',
+			'cbid.wan_switch.1.switch_auto',
+			'cbid.wan_switch.1.login_campus',
+			'cbid.wan_switch.1.down_wan',
+			'cbid.wan_switch.1.down_usb'
 		];
 
 		for (var i = 0; i < ids.length; i++) {
@@ -94,7 +136,7 @@
 
 		var notice = byId('wan-switch-notice');
 		if (notice)
-			notice.innerHTML = busy ? '切换中...' : '';
+			notice.innerHTML = busy ? '执行中...' : '';
 	}
 
 	function requestJson(url, params, callback) {
@@ -146,34 +188,58 @@
 			var notice = byId('wan-switch-notice');
 			if (data && data.success) {
 				if (notice)
-					notice.innerHTML = '切换完成';
+					notice.innerHTML = data.message || '执行完成';
 				updateStatus(data.status);
 			}
 			else {
-				if (notice)
-					notice.innerHTML = '切换失败';
+				if (notice) {
+					var msg = data && data.message ? data.message : '执行失败';
+					notice.textContent = msg;
+				}
+				if (data && data.status)
+					updateStatus(data.status);
 			}
 		});
 
 		return false;
 	}
 
-	function bindButtons() {
-		var campusBtn = byId('wan-switch-action-campus');
-		var f50Btn = byId('wan-switch-action-f50');
-		var autoBtn = byId('wan-switch-action-auto');
+	function bindActionButton(id, target) {
+		var btn = byId(id);
 
-		if (campusBtn)
-			campusBtn.onclick = function() { return switchWan('campus'); };
-		if (f50Btn)
-			f50Btn.onclick = function() { return switchWan('f50'); };
-		if (autoBtn)
-			autoBtn.onclick = function() { return switchWan('auto'); };
+		if (!btn)
+			return;
+
+		btn.type = 'button';
+		btn.onclick = function(ev) {
+			if (ev && ev.preventDefault)
+				ev.preventDefault();
+
+			return switchWan(target);
+		};
 	}
 
-	bindButtons();
-	refreshStatus();
-	window.setInterval(refreshStatus, 5000);
+	function bindButtons() {
+		bindActionButton('cbid.wan_switch.1.switch_to_campus', 'campus');
+		bindActionButton('cbid.wan_switch.1.switch_to_usb', 'usb');
+		bindActionButton('cbid.wan_switch.1.switch_auto', 'auto');
+		bindActionButton('cbid.wan_switch.1.login_campus', 'login');
+		bindActionButton('cbid.wan_switch.1.down_wan', 'down-wan');
+		bindActionButton('cbid.wan_switch.1.down_usb', 'down-usb');
+	}
+
+	function initWanSwitchPage() {
+		bindButtons();
+		refreshStatus();
+		window.setInterval(refreshStatus, 5000);
+	}
+
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', initWanSwitchPage);
+	}
+	else {
+		initWanSwitchPage();
+	}
 //]]></script>
 
 <div id="wan-switch-dashboard" class="wan-switch-dashboard wan-switch-info">
@@ -189,8 +255,7 @@
 	<div class="wan-switch-grid">
 		<div class="wan-switch-card">
 			<div class="wan-switch-card-title">当前出口</div>
-			<div id="wan-switch-current-kind" class="wan-switch-card-main">--</div>
-			<div id="wan-switch-current-ip" class="wan-switch-card-note">--</div>
+			<div id="wan-switch-current-ip" class="wan-switch-card-main">--</div>
 		</div>
 		<div class="wan-switch-card">
 			<div class="wan-switch-card-title">今晚断网</div>
@@ -198,9 +263,9 @@
 			<div id="wan-switch-outage-detail" class="wan-switch-card-note">--</div>
 		</div>
 		<div class="wan-switch-card">
-			<div class="wan-switch-card-title">保护状态</div>
+			<div class="wan-switch-card-title">USB 计费保护</div>
 			<div id="wan-switch-protection" class="wan-switch-card-main">--</div>
-			<div id="wan-switch-f50-line" class="wan-switch-card-note">--</div>
+			<div id="wan-switch-usb-line" class="wan-switch-card-note">--</div>
 		</div>
 		<div class="wan-switch-card">
 			<div class="wan-switch-card-title">下一次自动动作</div>
@@ -209,17 +274,16 @@
 	</div>
 </div>
 
-<div class="wan-switch-actions">
-	<button type="button" id="wan-switch-action-campus" class="btn cbi-button cbi-button-apply">切到校园 WAN</button>
-	<button type="button" id="wan-switch-action-f50" class="btn cbi-button cbi-button-apply">切到 F50</button>
-	<button type="button" id="wan-switch-action-auto" class="btn cbi-button cbi-button-apply">按自动规则切换</button>
-</div>
-
 <div id="wan-switch-notice" class="wan-switch-notice"></div>
 
 <style>
 .wan-switch-ok {
 	color: #2e7d32;
+	font-weight: 600;
+}
+
+.wan-switch-warn {
+	color: #f59e0b;
 	font-weight: 600;
 }
 
@@ -232,13 +296,6 @@
 	margin-top: 12px;
 	min-height: 20px;
 	font-weight: 600;
-}
-
-.wan-switch-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 8px;
-	margin-bottom: 12px;
 }
 
 .wan-switch-dashboard {
