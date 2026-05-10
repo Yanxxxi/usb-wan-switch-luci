@@ -1,0 +1,2 @@
+@reboot /root/f50-wan-switch.sh auto
+*/5 * * * * /root/f50-wan-switch.sh auto
