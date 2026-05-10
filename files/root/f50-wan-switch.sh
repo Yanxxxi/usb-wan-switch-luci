@@ -172,6 +172,7 @@ wait_interface_ipv4() {
 	return 0
 }
 
+<<<<<<< HEAD
 wait_interface_ipv4_required() {
 	iface="$1"
 	tries="${2:-20}"
@@ -205,6 +206,8 @@ force_campus_default_route() {
 	return 0
 }
 
+=======
+>>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 force_usb_default_route() {
 	dev="$(interface_device "$USB_IF")"
 	gw="$(interface_gateway "$USB_IF")"
@@ -295,10 +298,15 @@ run_campus_login() {
 		return 0
 	fi
 
+<<<<<<< HEAD
 	logger -t "$TAG" "running campus login through $PORTAL_IP in background"
 	(
 		"$CAMPUS_LOGIN" >/dev/null 2>&1 || logger -t "$TAG" "campus login failed"
 	) &
+=======
+	logger -t "$TAG" "running campus login through $PORTAL_IP"
+	"$CAMPUS_LOGIN" >/dev/null 2>&1 || logger -t "$TAG" "campus login failed"
+>>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	return 0
 }
 
@@ -312,7 +320,10 @@ prepare_usb() {
 prepare_campus() {
 	logger -t "$TAG" "preparing campus network"
 	ensure_interface_up "$CAMPUS_IF"
+<<<<<<< HEAD
 	wait_interface_ipv4_required "$CAMPUS_IF" 20 || return 1
+=======
+>>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	run_campus_login
 	return 0
 }
@@ -321,12 +332,17 @@ switch_to_campus() {
 	current="$(uci -q get mwan3.default_rule.use_policy || true)"
 
 	logger -t "$TAG" "switching to campus-only policy and enabling USB billing protection"
+<<<<<<< HEAD
 	prepare_campus || {
 		logger -t "$TAG" "campus WAN is not ready; keep USB online and abort campus switch"
 		return 1
 	}
 	set_mwan_policy "$CAMPUS_POLICY"
 	force_campus_default_route
+=======
+	prepare_campus
+	set_mwan_policy "$CAMPUS_POLICY"
+>>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	enable_billing_protection
 	restart_mwan3
 
@@ -375,12 +391,17 @@ shutdown_wan() {
 
 shutdown_usb() {
 	logger -t "$TAG" "safely shutting down USB: switch to campus WAN first"
+<<<<<<< HEAD
 	prepare_campus || {
 		logger -t "$TAG" "campus WAN is not ready; keep USB online and abort USB shutdown"
 		return 1
 	}
 	set_mwan_policy "$CAMPUS_POLICY"
 	force_campus_default_route
+=======
+	prepare_campus
+	set_mwan_policy "$CAMPUS_POLICY"
+>>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	enable_billing_protection
 	restart_mwan3
 	return 0

@@ -1,0 +1,20 @@
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Local archives and OpenWrt backups
+*.tgz
+*.tar.gz
+*.backup
+*.backup-*
+
+# Private router or captive-portal config
+f50-wan-switch.conf
+*.secret
+*.local
+
+# LuCI/OpenWrt runtime caches
+luci-indexcache
+luci-modulecache/
+.cache/

@@ -1,0 +1,8 @@
+# Optional local config for captive-portal login before switching back to primary WAN.
+# Copy to /root/f50-wan-switch.conf and chmod 600.
+#
+# Keep this file private if CAMPUS_LOGIN_URL contains credentials.
+
+CAMPUS_IFACE='eth1'
+CAMPUS_CHECK_IP='223.5.5.5'
+CAMPUS_LOGIN_URL='http://example.edu/login?user=YOUR_USER&password=YOUR_PASSWORD'
