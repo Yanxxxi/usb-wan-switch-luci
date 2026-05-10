@@ -172,7 +172,6 @@ wait_interface_ipv4() {
 	return 0
 }
 
-<<<<<<< HEAD
 wait_interface_ipv4_required() {
 	iface="$1"
 	tries="${2:-20}"
@@ -206,8 +205,6 @@ force_campus_default_route() {
 	return 0
 }
 
-=======
->>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 force_usb_default_route() {
 	dev="$(interface_device "$USB_IF")"
 	gw="$(interface_gateway "$USB_IF")"
@@ -222,10 +219,13 @@ force_usb_default_route() {
 	fi
 
 	ip -4 route flush cache 2>/dev/null || true
-
 	echo "nameserver 223.5.5.5" > /tmp/resolv.conf 2>/dev/null || true
 	echo "nameserver 119.29.29.29" >> /tmp/resolv.conf 2>/dev/null || true
 	return 0
+}
+
+refresh_route_cache() {
+	ip -4 route flush cache 2>/dev/null || true
 }
 
 enable_billing_protection() {
@@ -246,7 +246,7 @@ disable_billing_protection_for_usb() {
 	logger -t "$TAG" "disabling USB billing protection: bring USB up and enable mwan3 USB monitoring"
 
 	ensure_interface_up "$USB_IF"
-	wait_interface_ipv4 "$USB_IF" 15
+	wait_interface_ipv4_required "$USB_IF" 30 || return 1
 
 	if uci -q get mwan3."$USB_IF" >/dev/null; then
 		uci set mwan3."$USB_IF".enabled='1' || logger -t "$TAG" "failed to enable mwan3.$USB_IF"
@@ -298,32 +298,30 @@ run_campus_login() {
 		return 0
 	fi
 
-<<<<<<< HEAD
 	logger -t "$TAG" "running campus login through $PORTAL_IP in background"
 	(
 		"$CAMPUS_LOGIN" >/dev/null 2>&1 || logger -t "$TAG" "campus login failed"
 	) &
-=======
-	logger -t "$TAG" "running campus login through $PORTAL_IP"
-	"$CAMPUS_LOGIN" >/dev/null 2>&1 || logger -t "$TAG" "campus login failed"
->>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	return 0
 }
 
 prepare_usb() {
 	logger -t "$TAG" "preparing metered USB network"
-	disable_billing_protection_for_usb
+	disable_billing_protection_for_usb || {
+		logger -t "$TAG" "USB is not ready during preheat"
+		return 1
+	}
+	echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true
 	restart_mwan3
+	force_usb_default_route
+	refresh_route_cache
 	return 0
 }
 
 prepare_campus() {
 	logger -t "$TAG" "preparing campus network"
 	ensure_interface_up "$CAMPUS_IF"
-<<<<<<< HEAD
 	wait_interface_ipv4_required "$CAMPUS_IF" 20 || return 1
-=======
->>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	run_campus_login
 	return 0
 }
@@ -332,19 +330,15 @@ switch_to_campus() {
 	current="$(uci -q get mwan3.default_rule.use_policy || true)"
 
 	logger -t "$TAG" "switching to campus-only policy and enabling USB billing protection"
-<<<<<<< HEAD
 	prepare_campus || {
 		logger -t "$TAG" "campus WAN is not ready; keep USB online and abort campus switch"
 		return 1
 	}
 	set_mwan_policy "$CAMPUS_POLICY"
 	force_campus_default_route
-=======
-	prepare_campus
-	set_mwan_policy "$CAMPUS_POLICY"
->>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	enable_billing_protection
 	restart_mwan3
+	refresh_route_cache
 
 	if [ "$current" = "$CAMPUS_POLICY" ]; then
 		logger -t "$TAG" "policy already $CAMPUS_POLICY; refreshed campus login and enabled USB billing protection"
@@ -359,11 +353,15 @@ switch_to_usb() {
 	current="$(uci -q get mwan3.default_rule.use_policy || true)"
 
 	logger -t "$TAG" "switching to USB-only policy and disabling USB billing protection"
-	disable_billing_protection_for_usb
+	disable_billing_protection_for_usb || {
+		logger -t "$TAG" "USB is not ready; abort USB switch"
+		return 1
+	}
 	echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true
 	set_mwan_policy "$USB_POLICY"
 	restart_mwan3
 	force_usb_default_route
+	refresh_route_cache
 
 	if [ "$current" = "$USB_POLICY" ]; then
 		logger -t "$TAG" "policy already $USB_POLICY; USB billing protection is disabled"
@@ -376,34 +374,35 @@ switch_to_usb() {
 
 shutdown_wan() {
 	logger -t "$TAG" "safely shutting down campus WAN: switch to USB first"
-	disable_billing_protection_for_usb
+	disable_billing_protection_for_usb || {
+		logger -t "$TAG" "USB is not ready; abort campus WAN shutdown"
+		return 1
+	}
 	echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true
 	set_mwan_policy "$USB_POLICY"
 	restart_mwan3
 	force_usb_default_route
+	refresh_route_cache
 	sleep 3
 	ifdown "$CAMPUS_IF" 2>/dev/null || logger -t "$TAG" "ifdown $CAMPUS_IF failed"
 	ip -4 route del default dev "$CAMPUS_IF" 2>/dev/null || true
 	ip -4 route del default dev wan 2>/dev/null || true
 	force_usb_default_route
+	refresh_route_cache
 	return 0
 }
 
 shutdown_usb() {
 	logger -t "$TAG" "safely shutting down USB: switch to campus WAN first"
-<<<<<<< HEAD
 	prepare_campus || {
 		logger -t "$TAG" "campus WAN is not ready; keep USB online and abort USB shutdown"
 		return 1
 	}
 	set_mwan_policy "$CAMPUS_POLICY"
 	force_campus_default_route
-=======
-	prepare_campus
-	set_mwan_policy "$CAMPUS_POLICY"
->>>>>>> 54c8dc0a4af1af36dd0813cbea95a944bfbc7585
 	enable_billing_protection
 	restart_mwan3
+	refresh_route_cache
 	return 0
 }
 
